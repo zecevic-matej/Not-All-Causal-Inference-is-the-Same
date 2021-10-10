@@ -94,7 +94,7 @@ class ConfounderSCM(SCM):
     def __init__(self, U_params=None):
         super(ConfounderSCM, self).__init__(U_params)
         self.name = "ConfounderSCM"
-        self.X = lambda u, z: np.logical_or(u, z).astype(np.int64)
+        self.X = lambda u, z: np.logical_xor(u, z).astype(np.int64) # this right one violates positivity assumption, since Z=1 implies X=1 ALWAYS! np.logical_or(u, z).astype(np.int64)
         self.Y = lambda u, z, x: np.logical_xor(np.logical_and(u, x), np.logical_and(u, z)).astype(np.int64)
         self.Z = lambda u: u
         self.W = lambda u, x: np.logical_and(u, x).astype(np.int64)

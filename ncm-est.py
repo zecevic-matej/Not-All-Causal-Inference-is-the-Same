@@ -1,4 +1,4 @@
-from models.ncm import NCMChain, NCMConfounder
+from models.ncm import NCMConfounder
 import torch
 import numpy as np
 import pandas as pd
@@ -13,8 +13,11 @@ class Config():
         self.log_interval = 50#0
         self.batch_size = 1
         self.loss_running_window = 50
-        self.seeds = [0, 4, 304, 606]
-        self.load_model = False
+        self.seeds = [4]#[0, 4, 304, 606]
+        self.samples = 1000
+        self.load_model = True#False
+        self.save_viz = False#True
+        self.animate = False
         self.dir_exp = "./experiments/NCM/"
 
 
@@ -107,7 +110,7 @@ if not os.path.exists(cfg.dir_exp):
     os.makedirs(cfg.dir_exp)
 
 ncm_func = {
-    'Chain': NCMChain,
+    #'Chain': NCMChain,
     'Confounder': NCMConfounder
 }
 
@@ -133,7 +136,7 @@ for seed in cfg.seeds:
 
         plt.clf()
         plt.close()
-        animate = False
+        animate = cfg.animate
 
         loss_per_step = []
         loss_components_per_step = []
@@ -148,17 +151,24 @@ for seed in cfg.seeds:
             for V in ncm.V:
                 ncm.S[V].zero_grad()
 
-            pV_est = ncm.forward(batch)
-            pV_int_mass = torch.zeros((1,))
-            train_ds_int = cycle(train_data)
-            for i in torch.where(train_data.dataset.dataset[:,0]==0)[0][:100]:
-                pV_int_est = ncm.forward(next(train_ds_int),doX=torch.zeros((1,)))
-                pV_int_mass += pV_int_est
-                #print(f'    {i}/{len(train_data)}    ', end="\r", flush=True)
+            pV_est = ncm.forward(batch, samples=cfg.samples, doX=torch.tensor([-1.]*cfg.samples).unsqueeze(1)) # -1 means no intervention, clean up!!
+            # pV_int_mass = torch.zeros((1,))
+            # for i in torch.where((train_data.dataset.dataset == batch).all(axis=1))[0]: # specifically do(X=0)
+            #     pV_int_est = ncm.forward(batch, doX=torch.tensor([0.]*1000).unsqueeze(1)) # TODO: clean the doX interface
+            #     pV_int_mass += pV_int_est
+            #     #print(f'    {i}/{len(train_data)}    ', end="\r", flush=True)
+            # this is the special case where y:=v and thus we only need to count how often we have the v in the data
+            reps = len(torch.where((train_data.dataset.dataset == batch).all(axis=1))[0])
+            pV_int_est = ncm.forward(batch, samples=cfg.samples, doX=torch.tensor([0.] * cfg.samples).unsqueeze(1))  # TODO: clean the doX interface
+            pV_int_mass = reps * pV_int_est
+            pV_int_mass = torch.where(pV_int_mass == 0., torch.tensor(0.)+1e-6, pV_int_mass)
 
             nll_l1 = -1 * torch.log(pV_est)
             nll_l2 = -1 * torch.log(pV_int_mass)
-            loss = nll_l1 + loss_int_weight * nll_l2
+            if torch.isnan(nll_l1) or torch.isnan(nll_l2):
+                import pdb; pdb.set_trace()
+            loss = nll_l1 + 0. * nll_l2
+            #print(f"Reps: {reps}\t Weight: {loss_int_weight}")
             loss.backward()
             optimizer.step()
 
@@ -179,20 +189,32 @@ for seed in cfg.seeds:
                     # TODO: repetition essentially of above, isolate
                     for _ in range(cfg.loss_running_window): # TODO: make this a true validation on all val data
                         val_batch = next(valid_ds)
-                        pV_est_val = ncm.forward(val_batch)
-                        pV_int_mass_val = torch.zeros((1,))
+                        pV_est_val = ncm.forward(val_batch, samples=cfg.samples, doX=torch.tensor([-1.]*cfg.samples).unsqueeze(1))
+
+                        # pV_int_mass_val = torch.zeros((1,))
+                        # val_ds_int = cycle(valid_data)
+                        # batch_val = next(val_ds_int)
+                        # for i in torch.where((valid_data.dataset.dataset == batch_val).all(axis=1))[0]: # TODO: note this is the same, since dataset.dataset is everything together
+                        #     pV_int_est_val = ncm.forward(batch_val, doX=torch.tensor([0.]*1000).unsqueeze(1))
+                        #     pV_int_mass_val += pV_int_est_val
                         val_ds_int = cycle(valid_data)
-                        for i in torch.where(valid_data.dataset.dataset[:, 0] == 0)[0][:100]: # TODO: note this is the same, since dataset.dataset is everything together
-                            pV_int_est_val = ncm.forward(next(val_ds_int), doX=torch.zeros((1,)))
-                            pV_int_mass_val += pV_int_est_val
+                        batch_val = next(val_ds_int)
+                        reps_val = len(torch.where((valid_data.dataset.dataset == batch_val).all(axis=1))[0])
+                        pV_int_est_val = ncm.forward(batch_val, samples=cfg.samples, doX=torch.tensor([0.] * cfg.samples).unsqueeze(1))  # TODO: clean the doX interface
+                        pV_int_mass_val = reps_val * pV_int_est_val
+                        pV_int_mass_val = torch.where(pV_int_mass_val == 0., torch.tensor(0.)+1e-6, pV_int_mass_val)
+
                         val_nll_l1 = -1 * torch.log(pV_est_val)
                         val_nll_l2 = -1 * torch.log(pV_int_mass_val)
-                        val_loss = val_nll_l1 + loss_int_weight * val_nll_l2
+                        val_loss = val_nll_l1 + 0. * val_nll_l2
                         valid_vals.append(val_loss)
                         valid_components_vals.append((val_nll_l1.item(), val_nll_l2.item()))
 
                     if animate:
-                        pred_marginals = ncm.compute_marginals(samples=1000)
+                        #pred_marginals = ncm.compute_marginals(samples=1000)
+                        pred_marginals = ncm.compute_marginals(samples=cfg.samples, doX=0.)
+                        gt_marginals = compute_gt_marginals(meta, 'L2_doX0')
+
 
                 running_loss_tr = np.mean(loss_per_step[-cfg.loss_running_window:])
                 running_loss_va = np.mean(valid_vals[-cfg.loss_running_window:])
@@ -214,7 +236,7 @@ for seed in cfg.seeds:
                     suffix = ""
 
                 if animate:
-                    plot_marginals(pred_marginals, gt_marginals, running_losses=[(running_losses_tr,'Train'), (running_losses_va,'Valid')], animate=True)
+                    plot_marginals(pred_marginals, gt_marginals, seed, running_losses=[(running_losses_tr,'Train'), (running_losses_va,'Valid')], animate=True)
 
                 print(
                     f"Step {step:<10d}\t"
@@ -224,7 +246,7 @@ for seed in cfg.seeds:
                 )
                 t0 = t1
         print(f'Training Complete.')
-        pred_marginals = ncm.compute_marginals(samples=1000)
+        pred_marginals = ncm.compute_marginals(samples=cfg.samples)
         plot_marginals(pred_marginals, gt_marginals, seed,
                        running_losses=[(np.array(running_losses_components_tr)[:,0],'Train L1'), (np.array(running_losses_components_tr)[:,1],'Train L2')], #[(running_losses_tr,'Train'), (running_losses_va,'Valid')],
                        save=(cfg.dir_exp, '-end'))
@@ -237,12 +259,104 @@ for seed in cfg.seeds:
         s.load_state_dict(checkpoint["MLPs"][ind])
     print(f'Loaded best model.')
 
-    pred_marginals = ncm.compute_marginals(samples=1000)
-    plot_marginals(pred_marginals, gt_marginals, seed, save=(cfg.dir_exp, '-best') if not cfg.load_model else None)
+    pred_marginals = ncm.compute_marginals(samples=cfg.samples)
+    plot_marginals(pred_marginals, gt_marginals, seed, save=(cfg.dir_exp, '-best') if cfg.save_viz or not cfg.load_model else None)
+    print(f'Computed Marginals for L1 distribution.')
 
     # intervention
-    pred_marginals = ncm.compute_marginals(samples=1000, doX=torch.ones((1,)))
-    plot_marginals(pred_marginals, compute_gt_marginals(meta, 'L2_doX1'), seed, save=(cfg.dir_exp, '-doX1') if not cfg.load_model else None)
+    pred_marginals = ncm.compute_marginals(samples=cfg.samples, doX=1.)
+    plot_marginals(pred_marginals, compute_gt_marginals(meta, 'L2_doX1'), seed, save=(cfg.dir_exp, '-doX1') if cfg.save_viz or not cfg.load_model else None)
+    print(f'Computed Marginals for do(X=1).')
+
     # intervention
-    pred_marginals = ncm.compute_marginals(samples=1000, doX=torch.zeros((1,)))
-    plot_marginals(pred_marginals, compute_gt_marginals(meta, 'L2_doX0'), seed, save=(cfg.dir_exp, '-doX0') if not cfg.load_model else None)
+    pred_marginals = ncm.compute_marginals(samples=cfg.samples, doX=0.)
+    plot_marginals(pred_marginals, compute_gt_marginals(meta, 'L2_doX0'), seed, save=(cfg.dir_exp, '-doX0') if cfg.save_viz or not cfg.load_model else None)
+    print(f'Computed Marginals for do(X=0).')
+
+
+
+
+# Code below was used to Debug the Positivity Violation of Confounder SCM
+# which rendered the task impossible due to non-identifiability for any parameterization of the SCM with that
+# specific type of structural equations (was due to the X = and(U_X, Z), also same for = or(..), but fine for xor(..))
+ps = ["ConfounderSCM_[0.1 0.8 0.7 0.8]p_N10000",
+    # "ConfounderSCM_[0.4 0.6 0.5 0.8]p_N10000",
+    # "ConfounderSCM_[0.5 0.7 0.6 0.5]p_N10000",
+    # "ConfounderSCM_[0.6 0.8 0.2 0.2]p_N10000",
+    # "ConfounderSCM_[0.9 0.4 0.7 0.5]p_N10000"
+      ]
+for p in ps:
+    meta, train_data, valid_data, test_data = load_dataset(seed, p)
+    l1 = compute_gt_marginals(meta, 'L1')
+    l2dx0 = compute_gt_marginals(meta, 'L2_doX0')
+    M = meta['L1'].shape[0]
+
+    # positivity violation check for Confounder SCM
+    # l1pz = lambda i: l1[2][i]
+    # l1pxz = lambda x,z: len(torch.where((meta['L1'][:,[0,2]] == torch.tensor([x,z])).all(axis=1))[0])/M
+    # l1px0gz = [l1pxz(0.,0.) / l1pz(0), l1pxz(0.,1.) / l1pz(1)]
+    # l1px1gz = [l1pxz(1.,0.) / l1pz(0), l1pxz(1.,1.) / l1pz(1)]
+    # print(p)
+    # print(f'p(X=0|Z)={l1px0gz}\t p(X=1|Z)={l1px1gz}\t Sums={[l1px0gz[0]+l1px1gz[0], l1px0gz[1]+l1px1gz[1]]}')
+
+    # backdoor adjustment validation via statistical terms, vs. conditional
+    l1pxy = lambda x,y: len(torch.where((meta['L1'][:,[0,1]] == torch.tensor([x,y])).all(axis=1))[0])/M
+    l1pxz = lambda x,z: len(torch.where((meta['L1'][:,[0,2]] == torch.tensor([x,z])).all(axis=1))[0])/M
+    l1pygxz = lambda y, x,z: (len(torch.where((meta['L1'][:,[0,1,2]] == torch.tensor([x,y,z])).all(axis=1))[0])/M) / l1pxz(x,z)
+    l1px = lambda x: len(torch.where((meta['L1'][:,[0]] == torch.tensor([x])).all(axis=1))[0])/M
+    l1pzgx = lambda z, x: (len(torch.where((meta['L1'][:,[0,2]] == torch.tensor([x,z])).all(axis=1))[0])/M) / l1px(x)
+    l1pz = lambda z: len(torch.where((meta['L1'][:,[2]] == torch.tensor([z])).all(axis=1))[0])/M
+
+    l1py0gx0z = [l1pygxz(0., 0., 0.),l1pygxz(0., 0., 1.)]
+    l1py1gx0z = [l1pygxz(1., 0., 0.),l1pygxz(1., 0., 1.)]
+    l1pzgx0 = [l1pzgx(0., 0.), l1pzgx(1., 0.)]
+    l1pz_ = [l1pz(0.), l1pz(1.)]
+
+    print(f'Conditional:\n'
+          f'p(Y=0|X=0) = p(X=0,Y=0)/p(X=0) = {l1pxy(0.,0.)}/{l1px(0.)} = {l1pxy(0.,0.)/l1px(0.)}\n'
+          f'           = Sum_Z( p(Y=0|X=0,Z)p(Z|X=0)\n'
+          f'           = Sum({l1py0gx0z}, {l1pzgx0})\n'
+          f'           = {sum(np.array(l1py0gx0z)*np.array(l1pzgx0))}\n'
+          f'p(Y=1|X=0) = p(X=0,Y=1)/p(X=0) = {l1pxy(0.,1.)}/{l1px(0.)} = {l1pxy(0.,1.)/l1px(0.)}\n'
+          f'           = Sum_Z( p(Y=1|X=0,Z)p(Z|X=0)\n'
+          f'           = Sum({l1py1gx0z}, {l1pzgx0})\n'
+          f'           = {sum(np.array(l1py1gx0z)*np.array(l1pzgx0))}\n')
+
+    print(f'Interventional:\n'
+          f'p(Y=0|do(X=0)) = Ground Truth Counting in L2 distr. {l2dx0[1][0]}\n'
+          f'               = Sum_Z( p(Y=0|X=0,Z)p(Z)\n'
+          f'               = Sum({l1py0gx0z}, {l1pz_})\n'
+          f'               = {sum(np.array(l1py0gx0z)*np.array(l1pz_))}\n'
+          f'p(Y=1|do(X=0)) = Ground Truth Counting in L2 distr. {l2dx0[1][1]}\n'
+          f'               = Sum_Z( p(Y=1|X=0,Z)p(Z)\n'
+          f'               = Sum({l1py1gx0z}, {l1pz_})\n'
+          f'               = {sum(np.array(l1py1gx0z)*np.array(l1pz_))}\n')
+
+
+
+# Visualize the Structural Equations learned by the NCM
+# and compare to the original SCM!
+samples = 1 # if bernoulli random variables, then this is not necessary anymore since only {0,1} opposed to [0,1)
+Z0 = ncm.S['Z'](torch.zeros((samples, 1)))
+Z1 = ncm.S['Z'](torch.ones((samples, 1)))
+print(f'Z = f_Z(U_Z=0) = {Z0}\n'
+      f'    f_Z(U_Z=1) = {Z1}')
+X00 = ncm.S['X'](torch.cat((torch.zeros((samples, 1)),torch.zeros((samples, 1))),axis=1))
+X01 = ncm.S['X'](torch.cat((torch.zeros((samples, 1)),torch.ones((samples, 1))),axis=1))
+X10 = ncm.S['X'](torch.cat((torch.ones((samples, 1)),torch.zeros((samples, 1))),axis=1))
+X11 = ncm.S['X'](torch.cat((torch.ones((samples, 1)),torch.ones((samples, 1))),axis=1))
+print(f'X = f_X(U_X=0, Z=0) = {torch.mean(X00)}\n'
+      f'  = f_X(U_X=0, Z=1) = {torch.mean(X01)}\n'
+      f'  = f_X(U_X=1, Z=0) = {torch.mean(X10)}\n'
+      f'  = f_X(U_X=1, Z=1) = {torch.mean(X11)}')
+
+# Replacing the actual NN learned with the ground truth structural equation of the SCM
+# to see whether everything is basically resolved by that - whether that MLP is the single problem
+# ncm.S['X'] = lambda t: torch.where((t == torch.tensor([0., 0.])).all(axis=1), torch.tensor(-100.), torch.where((t == torch.tensor([1., 1.])).all(axis=1), torch.tensor(-100.), torch.tensor(100.))).unsqueeze(1)
+#
+# pred_marginals = ncm.compute_marginals(samples=cfg.samples)
+# plot_marginals(pred_marginals, gt_marginals, seed)
+# pred_marginals = ncm.compute_marginals(samples=cfg.samples, doX=1.)
+# plot_marginals(pred_marginals, compute_gt_marginals(meta, 'L2_doX1'), seed)
+# pred_marginals = ncm.compute_marginals(samples=cfg.samples, doX=0.)
+# plot_marginals(pred_marginals, compute_gt_marginals(meta, 'L2_doX0'), seed)
