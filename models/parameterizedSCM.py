@@ -7,7 +7,7 @@ from abc import ABCMeta, abstractmethod
 class ParameterizedSCM():
     __metaclass__ = ABCMeta
     def __init__(self, adj):
-        alpha = 'XYZW'
+        alpha = 'XYZWABCDEFGHIJKLMNOPQRSTUV'
         self.i2n = lambda x: alpha[x]
         self.V = []
         self.S = {}

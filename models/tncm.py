@@ -64,13 +64,13 @@ class TNCM(ParameterizedSCM):
     Tractable NCM, based on SPN for tractable (fast/efficient) inference.
     """
 
-    def __init__(self, adj, spn_type="EinSum"):
+    def __init__(self, adj, spn_type="EinSum", scale=False):
         super(TNCM, self).__init__(adj)
         self.spn_type = spn_type
         for V in self.graph:
             V_name = self.i2n(V)
             pa_V = self.graph[V]
-            print(f'Variable {V_name} := ')
+            #print(f'Variable {V_name} := ')
 
             # if self.spn_type == "EinSum":
             #     einet = EinsumNetwork.EinsumNetwork(
@@ -89,8 +89,8 @@ class TNCM(ParameterizedSCM):
             #     einet.initialize()
             #     model = einet#lambda x: EinsumNetwork.log_likelihoods(einet.forward(x))
             # else:
-
-            model = SPN(D=len(pa_V)+1, C=30, K=len(pa_V)+1)
+            C = 30#len(pa_V)+1+scale #int((len(pa_V)+1)+10) if scale else 30
+            model = SPN(D=len(pa_V)+1, C=C, K=len(pa_V)+1)
 
             self.S.update({V_name: model})
 

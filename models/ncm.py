@@ -15,7 +15,7 @@ class MLP(torch.nn.Module):
                 torch.nn.ReLU(),
             ])
         self.net.pop()  # pop the last ReLU for the output layer
-        print(f'Layer Sizes: {str([l.weight.shape if isinstance(l, torch.nn.Linear) else None for l in self.net])}')
+        #print(f'Layer Sizes: {str([l.weight.shape if isinstance(l, torch.nn.Linear) else None for l in self.net])}')
         self.net = torch.nn.Sequential(*self.net)
 
     def forward(self, input):
@@ -27,14 +27,15 @@ class NCM(ParameterizedSCM):
     Classical NCM, own implementation following the Xia et al. 2021 paper.
     """
 
-    def __init__(self, adj):
+    def __init__(self, adj, scale=False):
         super(NCM, self).__init__(adj)
         for V in self.graph:
             V_name = self.i2n(V)
             pa_V = self.graph[V]
-            print(f'Variable {V_name} := ')
+            #print(f'Variable {V_name} := ')
+            hs = [10,10,10]#[2*scale for _ in range(3)] #[10*int(len(pa_V)+1) for _ in range(3)] if scale else [10,10,10]
             self.S.update({V_name:
-                               MLP(len(pa_V)+1, 1, [10,10,10])
+                               MLP(len(pa_V)+1, 1, hs)
                            })
 
     def params(self):

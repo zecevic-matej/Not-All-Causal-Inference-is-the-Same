@@ -112,23 +112,23 @@ class ConfounderSCM(SCM):
         return df
 
 class BackdoorSCM(SCM):
-    # Y -> Z <- X -> W -> Y
+    # Y <- X <- Z -> W -> Y
     def __init__(self, U_params=None):
         super(BackdoorSCM, self).__init__(U_params)
         self.name = "BackdoorSCM"
-        self.X = lambda u: u
-        self.Y = lambda u, w: np.logical_xor(u, w).astype(np.int64)
-        self.Z = lambda u, y, x: np.logical_or(np.logical_and(u, y), x).astype(np.int64)
-        self.W = lambda u, x: np.logical_or(u, x).astype(np.int64)
-        self.adj = np.array([[0, 0, 1, 1],[0, 0, 1, 0],[0, 0, 0, 0],[0, 1, 0, 0]],dtype=float)
+        self.Z = lambda u: u
+        self.X = lambda u, z: np.logical_xor(u, z).astype(np.int64)
+        self.W = lambda u, z: np.logical_and(u, z).astype(np.int64)
+        self.Y = lambda u, w, x: np.logical_and(np.logical_and(u, w), x).astype(np.int64)
+        self.adj = np.array([[0, 1, 0, 0],[0, 0, 0, 0],[1, 0, 0, 1],[0, 1, 0, 0]],dtype=float)
 
     def topological_computation(self, n_samples, doX=None):
+        self.z = self.Z(self.U_Z(n_samples))
         if doX is not None:
             self.x = doX
         else:
-            self.x = self.X(self.U_X(n_samples))
-        self.w = self.W(self.U_W(n_samples), self.x)
-        self.y = self.Y(self.U_Y(n_samples), self.w)
-        self.z = self.Z(self.U_Z(n_samples), self.y, self.x)
+            self.x = self.X(self.U_X(n_samples), self.z)
+        self.w = self.W(self.U_W(n_samples), self.z)
+        self.y = self.Y(self.U_Y(n_samples), self.w, self.x)
         df = pd.DataFrame.from_dict({'x': self.x, 'y': self.y, 'z': self.z, 'w': self.w})
         return df

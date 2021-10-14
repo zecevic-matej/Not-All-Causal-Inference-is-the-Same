@@ -4,7 +4,7 @@ import os
 np.random.seed(0)
 params = [np.round(np.random.uniform(0.1, 0.9, 4),decimals=1) for _ in range(5)]
 print(f'Random Parameterizations: {params}')
-scms = [ChainSCM, ColliderSCM, ConfounderSCM, BackdoorSCM]
+scms = [BackdoorSCM]
 base_dir = './datasets/SCMs/'
 if not os.path.exists(base_dir):
     os.makedirs(base_dir)
