@@ -1,6 +1,4 @@
-### A Taxonomy for Inference in Causal Model Families
-
-#### Submitted to CLeaR'23
+### Official Code for TMLR 2023 Submission on Causal Inference
 
 Official code repository for the corresponding paper.
 
