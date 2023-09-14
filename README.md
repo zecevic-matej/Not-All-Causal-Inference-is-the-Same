@@ -1,10 +1,8 @@
-### Official Code for TMLR 2023 Submission on Causal Inference
+### Not All Causal Inference is the Same [Accepted to TMLR 2023]
 
-Official code repository for the corresponding paper.
+Official code repository for reproducing the empirical section of the paper: "7.1 ‘Bonus:’ An Easy Solution to Speeding Up Mechanism Inference in SCM".
 
-Contains a partial re-implementation of [Xia et al. 2021](https://arxiv.org/abs/2107.00793) (since their code base as of writing is not yet public).
-
-![](media/thumbnail.png)
+![Thumbnail of Figure 3 from Paper](media/thumbnail.png)
 
 ---
 
@@ -12,4 +10,4 @@ Contains a partial re-implementation of [Xia et al. 2021](https://arxiv.org/abs/
 
 * `aux` contains helper functions
 * `models` contains base functions like neural nets, sum-product networks but also the actual (T)NCM
-* `expX` reproduces an experiment as found in the paper
+* `expX.py` reproduces an experiment as found in the paper (e.g. `exp1.py` reproduces the results from Figure 6 of the main paper)
